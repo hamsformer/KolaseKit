@@ -602,8 +602,11 @@
 <header>
   <div class="logo">Kolase<span>Kit</span></div>
   <div class="header-actions">
+    <button class="btn btn-ghost" onclick="undo()" title="Undo (Ctrl+Z)">↶</button>
+    <button class="btn btn-ghost" onclick="redo()" title="Redo (Ctrl+Y)">↷</button>
     <button class="btn btn-ghost" onclick="clearAll()">🗑 Bersihkan</button>
     <button class="btn btn-ghost" onclick="downloadPNG()">⬇ PNG</button>
+    <button class="btn btn-purple" onclick="downloadHD()">✨ HD</button>
     <button class="btn btn-primary" onclick="downloadJPG()">💾 Simpan JPG</button>
   </div>
 </header>
@@ -1066,6 +1069,15 @@ const LAYOUTS_SPECIAL = [
   { id:'film', label:'Film Strip', cells: (w,h,g)=>{
     const n=5, strip=60, cw=(w-2*g), ch=(h-2*strip-3*g), cs=(cw-(n-1)*g)/n;
     const cells=[];
+
+const LAYOUTS_EXTRA = [
+  { id:'5grid', label:'5 Grid', cells:(w,h,g)=>{ const cw=(w-4*g)/3, ch=(h-3*g)/2; return [{x:g,y:g,w:cw,h:ch},{x:g+cw+g,y:g,w:cw,h:ch},{x:g+2*(cw+g),y:g,w:cw,h:ch},{x:g,y:g+ch+g,w:(w-3*g)/2,h:ch},{x:g+(w-3*g)/2+g,y:g+ch+g,w:(w-3*g)/2,h:ch}] }},
+  { id:'6grid', label:'6 Grid', cells:(w,h,g)=>{ const cw=(w-4*g)/3, ch=(h-3*g)/2; const arr=[]; for(let r=0;r<2;r++) for(let c=0;c<3;c++) arr.push({x:g+c*(cw+g),y:g+r*(ch+g),w:cw,h:ch}); return arr; }},
+  { id:'magazine', label:'Magazine', cells:(w,h,g)=>{ const left=w*0.62; return [{x:g,y:g,w:left-1.5*g,h:h-2*g},{x:left+g,y:g,w:w-left-2*g,h:(h-3*g)/2},{x:left+g,y:g+(h-3*g)/2+g,w:(w-left-3*g)/2,h:(h-3*g)/2},{x:left+g+(w-left-3*g)/2+g,y:g+(h-3*g)/2+g,w:(w-left-3*g)/2,h:(h-3*g)/2}] }},
+  { id:'filmstrip', label:'Film Strip', cells:(w,h,g)=>{ const main=h*0.65; const sw=(w-6*g)/5; const arr=[{x:g,y:g,w:w-2*g,h:main-g}]; for(let i=0;i<5;i++) arr.push({x:g+i*(sw+g),y:main+g,w:sw,h:h-main-2*g}); return arr; }},
+  { id:'collage9', label:'9 Grid', cells:(w,h,g)=>{ const cw=(w-4*g)/3, ch=(h-4*g)/3; const arr=[]; for(let r=0;r<3;r++) for(let c=0;c<3;c++) arr.push({x:g+c*(cw+g),y:g+r*(ch+g),w:cw,h:ch}); return arr; }},
+];
+
     for(let i=0;i<n;i++) cells.push({x:g+i*(cs+g),y:strip+g,w:cs,h:ch});
     return cells;
   }},
@@ -1143,13 +1155,20 @@ function applyLayout(layout) {
   cells = newCells.map((c, i) => ({
     ...c,
     img: oldImages[i]?.img || null,
-    imgScale: oldImages[i]?.scale || 1,
-    imgOffX: oldImages[i]?.ox || 0,
-    imgOffY: oldImages[i]?.oy || 0,
+    imgScale: oldImages[i]?.imgScale || oldImages[i]?.scale || 1,
+    imgOffX: oldImages[i]?.imgOffX || oldImages[i]?.ox || 0,
+    imgOffY: oldImages[i]?.imgOffY || oldImages[i]?.oy || 0,
+    brightness: oldImages[i]?.brightness ?? 100,
+    contrast: oldImages[i]?.contrast ?? 100,
+    saturation: oldImages[i]?.saturation ?? 100,
+    hue: oldImages[i]?.hue ?? 0,
+    blur: oldImages[i]?.blur ?? 0,
+    sepia: oldImages[i]?.sepia ?? 0,
   }));
   selectedCell = -1;
   document.getElementById('selectedCellPanel').style.display = 'none';
   render();
+  saveHistory();
 }
 
 // =============================
@@ -1202,6 +1221,49 @@ function setBg(color, swatch) {
 // =============================
 // RENDER
 // =============================
+function saveHistory() {
+  const state = JSON.stringify({
+    cells: cells.map(c=>({
+      imgSrc: c.img?.src || null,
+      imgScale:c.imgScale, imgOffX:c.imgOffX, imgOffY:c.imgOffY,
+      brightness:c.brightness, contrast:c.contrast, saturation:c.saturation, hue:c.hue, blur:c.blur, sepia:c.sepia
+    })),
+    textLayers, stickerLayers, bgColor, gap, canvasW:canvas.width, canvasH:canvas.height
+  });
+  historyStack = historyStack.slice(0, historyIndex+1);
+  historyStack.push(state);
+  historyIndex++;
+  if (historyStack.length>50) { historyStack.shift(); historyIndex--; }
+}
+function undo() {
+  if (historyIndex<=0) return;
+  historyIndex--;
+  loadHistory(historyStack[historyIndex]);
+}
+function redo() {
+  if (historyIndex>=historyStack.length-1) return;
+  historyIndex++;
+  loadHistory(historyStack[historyIndex]);
+}
+async function loadHistory(stateStr) {
+  const s = JSON.parse(stateStr);
+  // restore cells images
+  for (let i=0;i<cells.length && i<s.cells.length;i++) {
+    const sc = s.cells[i];
+    cells[i].imgScale=sc.imgScale; cells[i].imgOffX=sc.imgOffX; cells[i].imgOffY=sc.imgOffY;
+    cells[i].brightness=sc.brightness??100; cells[i].contrast=sc.contrast??100; cells[i].saturation=sc.saturation??100; cells[i].hue=sc.hue??0; cells[i].blur=sc.blur??0; cells[i].sepia=sc.sepia??0;
+    if (sc.imgSrc && (!cells[i].img || cells[i].img.src!==sc.imgSrc)) {
+      cells[i].img = await loadImage(sc.imgSrc);
+    } else if (!sc.imgSrc) cells[i].img=null;
+  }
+  textLayers = s.textLayers || [];
+  stickerLayers = s.stickerLayers || [];
+  bgColor = s.bgColor;
+  gap = s.gap;
+  render();
+}
+function loadImage(src){return new Promise(res=>{const im=new Image();im.onload=()=>res(im);im.src=src;});}
+
 function render() {
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.fillStyle = bgColor;
@@ -1214,7 +1276,7 @@ function render() {
     ctx.clip();
 
     if (cell.img) {
-      drawImageFit(cell.img, cell.x, cell.y, cell.w, cell.h, cell.imgScale, cell.imgOffX, cell.imgOffY);
+      drawImageFit(cell.img, cell.x, cell.y, cell.w, cell.h, cell.imgScale, cell.imgOffX, cell.imgOffY, cell);
     } else {
       // Empty cell placeholder
       ctx.fillStyle = '#1e1e24';
@@ -1268,7 +1330,7 @@ function roundRectPath(x, y, w, h, r) {
   ctx.closePath();
 }
 
-function drawImageFit(img, x, y, w, h, scale, offX, offY) {
+function drawImageFit(img, x, y, w, h, scale, offX, offY, filters) {
   const imgAR = img.width / img.height;
   const cellAR = w / h;
   let dw, dh;
@@ -1281,7 +1343,11 @@ function drawImageFit(img, x, y, w, h, scale, offX, offY) {
   }
   const dx = x + (w - dw)/2 + offX;
   const dy = y + (h - dh)/2 + offY;
+  if (filters) {
+    ctx.filter = `brightness(${filters.brightness}%) contrast(${filters.contrast}%) saturate(${filters.saturation}%) hue-rotate(${filters.hue}deg) blur(${filters.blur}px) sepia(${filters.sepia}%)`;
+  }
   ctx.drawImage(img, dx, dy, dw, dh);
+  ctx.filter = 'none';
 }
 
 function drawTextLayer(tl, selected) {
@@ -1314,6 +1380,10 @@ function drawTextLayer(tl, selected) {
     ctx.setLineDash([4,4]);
     ctx.strokeRect(ox - 4, tl.y - th + 4, tw + 8, th + 4);
     ctx.setLineDash([]);
+    // resize handle
+    ctx.fillStyle = '#7c6bff';
+    ctx.fillRect(ox + tw + 4 - 6, tl.y + 4 - 6, 12, 12);
+    tl._bbox = {x: ox-4, y: tl.y-th+4, w: tw+8, h: th+4};
   }
   ctx.restore();
 }
@@ -1376,6 +1446,37 @@ function updateCellZoom(val) {
   cells[selectedCell].imgScale = val / 100;
   render();
 }
+function updateFilter(type, val) {
+  if (selectedCell < 0) return;
+  const c = cells[selectedCell];
+  c[type] = parseInt(val);
+  document.getElementById('v-' + (type==='brightness'?'bright':type==='saturation'?'sat':type==='contrast'?'contrast':type==='hue'?'hue':type==='blur'?'blur':'sepia')).textContent = val + (type==='hue'?'°':type==='blur'?'':'%');
+  saveHistory();
+  render();
+}
+function resetFilters() {
+  if (selectedCell < 0) return;
+  const c = cells[selectedCell];
+  c.brightness=100; c.contrast=100; c.saturation=100; c.hue=0; c.blur=0; c.sepia=0;
+  ['bright','contrast','sat','hue','blur','sepia'].forEach((id,i)=>{
+    const vals=[100,100,100,0,0,0];
+    const el=document.getElementById('f-'+(id==='bright'?'bright':id==='sat'?'sat':id));
+    if(el) el.value=vals[i];
+    document.getElementById('v-'+id).textContent=vals[i]+(id==='hue'?'°':id==='blur'?'':'%');
+  });
+  saveHistory(); render();
+}
+function loadFiltersToUI() {
+  if (selectedCell < 0) return;
+  const c = cells[selectedCell];
+  document.getElementById('f-bright').value = c.brightness; document.getElementById('v-bright').textContent=c.brightness+'%';
+  document.getElementById('f-contrast').value = c.contrast; document.getElementById('v-contrast').textContent=c.contrast+'%';
+  document.getElementById('f-sat').value = c.saturation; document.getElementById('v-sat').textContent=c.saturation+'%';
+  document.getElementById('f-hue').value = c.hue; document.getElementById('v-hue').textContent=c.hue+'°';
+  document.getElementById('f-blur').value = c.blur; document.getElementById('v-blur').textContent=c.blur;
+  document.getElementById('f-sepia').value = c.sepia; document.getElementById('v-sepia').textContent=c.sepia+'%';
+}
+
 
 // =============================
 // CANVAS CLICK / DRAG
@@ -1410,6 +1511,7 @@ canvas.addEventListener('mousedown', e => {
     const panel = document.getElementById('selectedCellPanel');
     panel.style.display = 'block';
     document.getElementById('selectedCellInfo').textContent = `Sel ${hit+1} dari ${cells.length}`;
+    loadFiltersToUI();
     const z = Math.round(cells[hit].imgScale * 100);
     document.getElementById('cellZoom').value = z;
     document.getElementById('cellZoomVal').textContent = z + '%';
@@ -1435,6 +1537,12 @@ canvas.addEventListener('mousemove', e => {
     textLayers[selectedTextLayer].x += dx;
     textLayers[selectedTextLayer].y += dy;
     render();
+  } else if (dragMode === 'text-resize' && selectedTextLayer >= 0) {
+    const tl = textLayers[selectedTextLayer];
+    tl.size = Math.max(12, Math.min(300, tl.size + dy*0.5));
+    document.getElementById('fontSize').value = Math.round(tl.size);
+    render();
+    saveHistory();
   }
   dragStart = pos;
 });
@@ -1481,7 +1589,7 @@ canvasArea.addEventListener('dragleave', () => {
 canvasArea.addEventListener('drop', e => {
   e.preventDefault();
   document.getElementById('dragOverlay').classList.remove('visible');
-  handleFileUpload(e.dataTransfer.files);
+  handleFileUpload(e.dataTransfer.files); saveHistory();
 });
 
 // =============================
@@ -1532,6 +1640,7 @@ function addTextLayer() {
 
   updateTextLayersList();
   render();
+  saveHistory();
 }
 
 function updateTextLayersList() {
@@ -1551,6 +1660,7 @@ function deleteTextLayer(i) {
   if (selectedTextLayer >= textLayers.length) selectedTextLayer = -1;
   updateTextLayersList();
   render();
+  saveHistory();
 }
 
 // =============================
@@ -1585,6 +1695,55 @@ function downloadJPG() {
   link.href = canvas.toDataURL('image/jpeg', 0.95);
   link.click();
 }
+function downloadHD() {
+  // render at 3x resolution using original images
+  const scale = 3;
+  const off = document.createElement('canvas');
+  off.width = canvas.width * scale;
+  off.height = canvas.height * scale;
+  const octx = off.getContext('2d');
+  octx.fillStyle = bgColor;
+  octx.fillRect(0,0,off.width,off.height);
+  cells.forEach(cell => {
+    octx.save();
+    const x = cell.x*scale, y=cell.y*scale, w=cell.w*scale, h=cell.h*scale;
+    // clip
+    octx.beginPath();
+    const r = (cell.round ? Math.min(w,h)/2 : cellRadius*scale);
+    octx.moveTo(x+r,y); octx.lineTo(x+w-r,y); octx.arcTo(x+w,y,x+w,y+r,r); octx.lineTo(x+w,y+h-r); octx.arcTo(x+w,y+h,x+w-r,y+h,r); octx.lineTo(x+r,y+h); octx.arcTo(x,y+h,x,y+h-r,r); octx.lineTo(x,y+r); octx.arcTo(x,y,x+r,y,r); octx.closePath();
+    octx.clip();
+    if (cell.img) {
+      const imgAR = cell.img.width / cell.img.height;
+      const cellAR = w / h;
+      let dw, dh;
+      if (imgAR > cellAR) { dh = h * cell.imgScale; dw = dh * imgAR; } else { dw = w * cell.imgScale; dh = dw / imgAR; }
+      const dx = x + (w - dw)/2 + cell.imgOffX*scale;
+      const dy = y + (h - dh)/2 + cell.imgOffY*scale;
+      octx.filter = `brightness(${cell.brightness}%) contrast(${cell.contrast}%) saturate(${cell.saturation}%) hue-rotate(${cell.hue}deg) blur(${cell.blur*scale}px) sepia(${cell.sepia}%)`;
+      octx.drawImage(cell.img, dx, dy, dw, dh);
+      octx.filter='none';
+    } else {
+      octx.fillStyle='#1e1e24'; octx.fillRect(x,y,w,h);
+    }
+    octx.restore();
+  });
+  // text
+  textLayers.forEach(tl=>{
+    octx.save();
+    octx.font = `bold ${tl.size*scale}px '${tl.font}'`;
+    octx.fillStyle = tl.color;
+    octx.textAlign = tl.align;
+    octx.textBaseline='alphabetic';
+    octx.fillText(tl.text, tl.x*scale, tl.y*scale);
+    octx.restore();
+  });
+  // stickers
+  stickerLayers.forEach(sl=>{ octx.font=`${sl.size*scale}px serif`; octx.textAlign='center'; octx.textBaseline='middle'; octx.fillText(sl.emoji, sl.x*scale, sl.y*scale); });
+  const link=document.createElement('a');
+  link.download='kolasekit-HD.png';
+  link.href=off.toDataURL('image/png');
+  link.click();
+}
 
 function clearAll() {
   cells.forEach(c => { c.img=null; c.imgScale=1; c.imgOffX=0; c.imgOffY=0; });
@@ -1595,6 +1754,7 @@ function clearAll() {
   document.getElementById('selectedCellPanel').style.display='none';
   updateTextLayersList();
   render();
+  saveHistory();
 }
 
 // =============================
@@ -1606,6 +1766,7 @@ window.addEventListener('load', () => {
   buildLayoutButtons(document.getElementById('layoutGrid'), LAYOUTS_GRID);
   buildLayoutButtons(document.getElementById('layoutFree'), LAYOUTS_FREE);
   buildLayoutButtons(document.getElementById('layoutSpecial'), LAYOUTS_SPECIAL);
+  buildLayoutButtons(document.getElementById('layoutSpecial'), LAYOUTS_EXTRA);
 
   // Load all Google Fonts
   FONTS.forEach(f => loadFont(f));
@@ -1613,10 +1774,12 @@ window.addEventListener('load', () => {
   // Apply default layout
   applyLayout(LAYOUTS_GRID[0]);
   zoomFit();
+  saveHistory();
   setTimeout(zoomFit, 200);
 });
 
 window.addEventListener('resize', () => { zoomFit(); });
+window.addEventListener('keydown', e=>{ if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && !e.shiftKey){e.preventDefault();undo();} if((e.ctrlKey||e.metaKey) && (e.key.toLowerCase()==='y' || (e.key.toLowerCase()==='z' && e.shiftKey))){e.preventDefault();redo();} });
 </script>
 </body>
 </html>
